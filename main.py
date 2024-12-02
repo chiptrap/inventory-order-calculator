@@ -1,212 +1,188 @@
-import tkinter as tk
-from tkinter import messagebox, ttk, filedialog
-import json
-import os
 import csv
-from datetime import datetime
+import json
+import tkinter as tk
+from tkinter import filedialog, messagebox, ttk
 
-# shipment schedule - Days when shipments are received
-shipments = ["Monday", "Tuesday", "Wednesday", "Saturday"]
+INVENTORY_FILE = 'inventory.json'
+MAX_INVENTORY_FILE = 'max_inventory.json'
 
-# Replace with actual inventory items, divided into groups for each tab
-tab_inventory_items = {
-    "Janitorial": ["3M #105 Green Scouring Pad", "Degreser, Heavy Duty 4ct", "Delimer Solution", "Esteem Dry-All", "Esteem Sani NC", "Grill Bricks", "Kay Liquid Disinfectant Cleanser", "Kay Neutral Floor Cleaner", "KayQuat Sanitizer", "Multi-Fold Towels", "Pot and Pan Detergent"],
-    "Janitorial Cont.": ["Power Pad Eraser", "Purell Surface Sanitizer Gallons", "Purell, Healthy Gentle Soap", "Purell, Sanitizer", "Machine Warewash Detergent", "Toilet Tissue", "Trash Liner", "Victory Wash"],
-    "Paper": ["12# Paper Bag", "16oz Paper Cup", "22oz Paper Cup", "25# Paper Bag", "32oz Paper Cup", "4oz Portion Cup", "6# Paper Bag", "Burrito Bowl", "Foil Roll", "Food Container Lid", "Food Container", "Fork Black"],
-    "Paper Cont.": ["Spoon Clear", "Straws", "Kids Meal Tray", "Kids Meal Insert", "Kids Meal Lids", "Knife Black", "Lid 16/22oz", "4oz Lid", "Napkins, Printed", "Rope Handle Bags"],
-}
+def load_inventory(file_path):
+    inventory = []
+    with open(file_path, mode='r') as file:
+        csv_reader = csv.reader(file)
+        next(csv_reader)  # Skip the header row
+        for row in csv_reader:
+            inventory.append({
+                'name': row[2],
+                'current_inventory': float(row[3])
+            })
+    save_inventory(inventory)
+    return inventory
 
-# Load existing data if the file exists, otherwise initialize empty data
-data_file = "inventory_data.json"
-if os.path.exists(data_file):
-    with open(data_file, "r") as file:
-        saved_data = json.load(file)
-else:
-    saved_data = {"inventory": {}, "usage_history": {}}
+def save_inventory(inventory):
+    with open(INVENTORY_FILE, 'w') as file:
+        json.dump(inventory, file)
 
-# Ensure "usage_history" key exists in saved_data
-if "usage_history" not in saved_data:
-    saved_data["usage_history"] = {}
-
-# Ensure all items have initial values of 0 if not already in saved data
-for group in tab_inventory_items.values():
-    for item in group:
-        saved_data["inventory"].setdefault(item, 0)
-        saved_data["usage_history"].setdefault(item, [])
-
-# Function to get the number of days until the next shipment
-def days_until_next_shipment():
-    today = datetime.now().strftime("%A")
-    for shipment_day in shipments:
-        if shipment_day == today:
-            return 1 # If today is a shipment day, the next shipment is tomorrow
-        elif shipment_day > today:
-            return (datetime.strptime(shipment_day, "%A") - datetime.strptime(today, "%A")).days
-    # If no more shipments this week, use the first shipment of the next week
-    return (7 - datetime.now(). weekday() + shipments[0]. weekday()) % 7
-
-# Initialize the main window
-root = tk.Tk()
-root.title("Inventory Order Calculator")
-root.geometry("600x600")
-
-# Create the Notebook (tab manager)
-notebook = ttk.Notebook(root)
-notebook.pack(pady=10, expand=True)
-
-# Create a tab for each group of items
-inventory_entries = {}
-
-# Function to focus the next widget and highlight its value
-def focus_and_highlight(event):
-    next_widget = event.widget.tk_focusNext()
-    next_widget.focus()
-    next_widget.select_range(0, tk.END)
-    return "break"
-
-# Function to highlight the value when the field is clicked
-def highlight_on_focus(event):
-    event.widget.select_range(0, tk.END)
-    return "break"
-
-# Function to update entry background based on value
-def update_entry_background(entry):
+def load_saved_inventory():
     try:
-        value = float(entry.get())
-        if value <= 1:
-            entry.config(bg="red")
-        else:
-            entry.config(bg="white")
-    except ValueError:
-        entry.config(bg="red")  # Invalid value should also show an alert color
+        with open(INVENTORY_FILE, 'r') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return []
 
-# Create tabs and add entries for inventory items
-for group_name, items in tab_inventory_items.items():
-    tab = ttk.Frame(notebook)
-    notebook.add(tab, text=group_name)
+def save_max_inventory_values(max_inventory_values, day):
+    try:
+        with open(MAX_INVENTORY_FILE, 'r') as file:
+            data = json.load(file)
+    except FileNotFoundError:
+        data = {}
+    data[day] = max_inventory_values
+    with open(MAX_INVENTORY_FILE, 'w') as file:
+        json.dump(data, file)
 
-    # Add entry fields for each item in the group
-    for row_num, item in enumerate(items):
-        tk.Label(tab, text=f"{item} (Cases):").grid(row=row_num, column=0, padx=10, pady=5, sticky="w")
-        entry = tk.Entry(tab)
-        # Insert value from saved data (should be defaulted to 0 if not present)
-        entry.insert(0, str(saved_data["inventory"][item]))
-        entry.grid(row=row_num, column=1, padx=10, pady=5)
-        entry.bind("<Return>", focus_and_highlight)  # Bind Enter key to move focus and highlight text
-        entry.bind("<FocusIn>", highlight_on_focus)  # Bind mouse click to highlight text
+def load_max_inventory_values(day):
+    try:
+        with open(MAX_INVENTORY_FILE, 'r') as file:
+            data = json.load(file)
+            return data.get(day, {})
+    except FileNotFoundError:
+        return {}
 
-        # Bind an event to check the inventory value whenever it is updated
-        entry.bind("<KeyRelease>", lambda event, e=entry: update_entry_background(e))
-        update_entry_background(entry)  # Initial update to set correct background color
+def initialize_max_inventory(day):
+    inventory = load_saved_inventory()
+    max_inventory_values = load_max_inventory_values(day)
+    if not max_inventory_values:
+        max_inventory_values = {item['name']: 0 for item in inventory}
+        save_max_inventory_values(max_inventory_values, day)
+    return max_inventory_values
 
-        inventory_entries[item] = entry
-
-# Function to validate inventory data and save all data to a JSON file
-def save_data():
-    # Validate inventory data
-    inventory_data = {}
-    for item, entry in inventory_entries.items():
-        try:
-            cases = float(entry.get())
-            if cases < 0:
-                messagebox.showerror("Input Error", f"Number of cases for {item} must be a non-negative number.")
-                return
-            inventory_data[item] = cases
-            # Track usage history if the inventory level has changed
-            if item in saved_data["inventory"] and saved_data["inventory"][item] != cases:
-                usage = saved_data["inventory"][item] - cases
-                if usage > 0:
-                    saved_data["usage_history"][item].append(usage)
-        except ValueError:
-            messagebox.showerror("Input Error", f"Please enter a valid number of cases for {item}.")
-            return
-
-    # Save validated data to the JSON file
-    saved_data["inventory"] = inventory_data
-    with open(data_file, "w") as file:
-        json.dump(saved_data, file)
-
-    messagebox.showinfo("Save Successful", "Data saved successfully!")
-
-# Button to save all data with validation
-save_all_button = tk.Button(root, text="Save All Data", command=save_data)
-save_all_button.pack(pady=10)
-
-# Function to calculate restocking needs
-def calculate_restock():
-    restock_message = ""
-    days_until_next = days_until_next_shipment()
-
-    for item in inventory_entries:
-        current_inventory = float(inventory_entries[item].get())
-
-        # Calculate average usage from usage history
-        usage_history = saved_data["usage_history"].get(item, [])
-        if usage_history:
-            average_usage = sum(usage_history) / len(usage_history)
-        else:
-            average_usage = 1 # Default average usage if no history is available
-
-        # Calculate adaptive restocking threshold
-        adaptive_threshold = average_usage * days_until_next
-
-        # If inventory is below the adaptive threshold, recommend restocking
-        if current_inventory < adaptive_threshold:
-            restock_needed = adaptive_threshold - current_inventory
-            restock_message += f"{item}: Restock needed - {restock_needed:.2f} units (Threshold: {adaptive_threshold:.2f})\n"
-
-    if restock_message:
-        messagebox.showinfo("Restocking Recommendations", restock_message)
+def calculate_order_quantity(current_inventory, max_inventory, case_size):
+    order_quantity = max_inventory - current_inventory
+    if order_quantity <= 0:
+        return 0
     else:
-        messagebox.showinfo("Restocking Recommendations", "All items are above the threshold.")
+        return ((order_quantity + case_size - 1) // case_size) * case_size
 
-# Button to calculate restocking needs
-calculate_restock_button = tk.Button(root, text="Calculate Restocking", command=calculate_restock)
-calculate_restock_button.pack(pady=10)
-
-# Function to import inventory data from a CSV file
-def import_data():
-    # Open a file dialog to select the CSV file
-    file_path = filedialog.askopenfilename(title="Select CSV File", filetypes=[("CSV Files", "*.csv")])
-    if not file_path:
-        return # User canceled the file dialog
+def load_inventory_and_display():
+    inventory_file = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
+    if not inventory_file:
+        return
     
-    try:
-        with open(file_path, newline='') as csvfile:
-            reader = csv.DictReader(csvfile)
-            if 'Item' not in reader.fieldnames or 'Cases' not in reader.fieldnames:
-                messagebox.showerror("Import Error", "CSV file must contain 'Item' and 'Cases' columns.")
+    inventory = load_inventory(inventory_file)
+    display_inventory(inventory)
+
+def display_inventory(inventory):
+    for item in tree_inventory.get_children():
+        tree_inventory.delete(item)
+    for item in inventory:
+        tree_inventory.insert("", "end", values=(item['name'], item['current_inventory']))
+
+def calculate_and_display_order():
+    inventory = load_saved_inventory()
+    selected_day = day_combobox.get()
+    max_inventory_values = load_max_inventory_values(selected_day)
+    
+    for item in tree_order.get_children():
+        tree_order.delete(item)
+    for item in inventory:
+        max_inventory = max_inventory_values.get(item['name'], 0)
+        order_quantity = calculate_order_quantity(item['current_inventory'], max_inventory, case_size=1)
+        if order_quantity > 0:
+            tree_order.insert("", "end", values=(item['name'], item['current_inventory'], order_quantity))
+
+def create_max_inventory_tab(tab):
+    days = ["Saturday", "Sunday", "Monday", "Thursday"]
+    selected_day = tk.StringVar()
+    selected_day.set(days[0])
+    
+    max_inventory_values = initialize_max_inventory(days[0])
+    
+    canvas = tk.Canvas(tab)
+    scrollbar = tk.Scrollbar(tab, orient="vertical", command=canvas.yview)
+    scrollable_frame = ttk.Frame(canvas)
+
+    scrollable_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")
+        )
+    )
+
+    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    labels = []
+    entries = []
+    for i, (name, max_value) in enumerate(max_inventory_values.items()):
+        label = tk.Label(scrollable_frame, text=name)
+        label.grid(row=i, column=0)
+        labels.append(label)
+        
+        entry = tk.Entry(scrollable_frame)
+        entry.insert(0, str(max_value))
+        entry.grid(row=i, column=1)
+        entries.append(entry)
+    
+    def on_submit():
+        new_max_inventory_values = {}
+        for label, entry in zip(labels, entries):
+            try:
+                new_max_inventory_values[label.cget("text")] = float(entry.get())
+            except ValueError:
+                messagebox.showerror("Invalid input", "Please enter valid numbers for max inventory values.")
                 return
-            
-            for row in reader:
-                item = row['Item']
-                try:
-                    cases = float(row['Cases'])
-                    if cases < 0:
-                        raise ValueError("Cases must be a non-negative number.")
-                
-                # Update the inventory data if the item exists
-                    if item in saved_data["inventory"]:
-                        saved_data["inventory"][item] = cases
-                        # Update the UI if the item exists in the entries
-                        if item in inventory_entries:
-                            inventory_entries[item].delete(0, tk.END)
-                            inventory_entries[item].insert(0, str(cases))
-                            update_entry_background(inventory_entries[item])
-
-                except ValueError:
-                    messagebox.showerror("Import Error", f"Invalid number of cases for item '{item}'.")
-                    return
+        save_max_inventory_values(new_max_inventory_values, day_combobox.get())
+        messagebox.showinfo("Success", "Max inventory values updated successfully.")
     
-        save_data()
+    submit_button = tk.Button(scrollable_frame, text="Submit", command=on_submit)
+    submit_button.grid(row=len(max_inventory_values), columnspan=2)
 
-        messagebox.showinfo("Import Successful", "Inventory data imported successfully.")
+    canvas.pack(side="left", fill="both", expand=True)
+    scrollbar.pack(side="right", fill="y")
 
-    except Exception as e:
-        messagebox.showerror("Import Error", f"An error occured while importing: {e}")
+root = tk.Tk()
+root.title("Inventory Management")
 
-# Button to import data from a CSV file
-import_button = tk.Button(root, text="Import Inventory Data", command=import_data)
-import_button.pack(pady=10)
+notebook = ttk.Notebook(root)
+notebook.pack(expand=True, fill='both')
+
+inventory_tab = ttk.Frame(notebook)
+notebook.add(inventory_tab, text="Inventory")
+
+max_inventory_tab = ttk.Frame(notebook)
+notebook.add(max_inventory_tab, text="Set Max Inventory")
+
+tree_inventory = ttk.Treeview(inventory_tab, columns=("Name", "Current Inventory"), show="headings")
+tree_inventory.heading("Name", text="Name")
+tree_inventory.heading("Current Inventory", text="Current Inventory")
+tree_inventory.pack(expand=True, fill='both')
+
+tree_order = ttk.Treeview(inventory_tab, columns=("Name", "Current Inventory", "Order Quantity"), show="headings")
+tree_order.heading("Name", text="Name")
+tree_order.heading("Current Inventory", text="Current Inventory")
+tree_order.heading("Order Quantity", text="Order Quantity")
+tree_order.pack(expand=True, fill='both')
+
+days = ["Saturday", "Sunday", "Monday", "Thursday"]
+selected_day = tk.StringVar()
+selected_day.set(days[0])
+
+day_label = tk.Label(inventory_tab, text="Select Day:")
+day_label.pack()
+
+day_combobox = ttk.Combobox(inventory_tab, values=days, textvariable=selected_day)
+day_combobox.pack()
+
+load_button = tk.Button(inventory_tab, text="Load Inventory CSV", command=load_inventory_and_display)
+load_button.pack()
+
+calculate_button = tk.Button(inventory_tab, text="Calculate Order", command=calculate_and_display_order)
+calculate_button.pack()
+
+create_max_inventory_tab(max_inventory_tab)
+
+# Load the current inventory count on run
+current_inventory = load_saved_inventory()
+display_inventory(current_inventory)
 
 root.mainloop()

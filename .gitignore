@@ -1,0 +1,3 @@
+# Ignore inventory and max inventory JSON files
+inventory.json
+max_inventory.json
